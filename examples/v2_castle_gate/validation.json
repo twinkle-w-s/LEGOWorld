@@ -1,0 +1,42 @@
+{
+  "valid": true,
+  "errors": [],
+  "summary": {
+    "parts": 39,
+    "connections": 40,
+    "collisions": 0,
+    "unknown_parts": 0,
+    "floating": 0,
+    "unanchored": 0,
+    "grid_alignment_errors": 0,
+    "vertical_seam_score": 0,
+    "wall_bond_quality": 1.0,
+    "errors_truncated": false,
+    "rigid_bodies": 1
+  },
+  "structure": {
+    "rigid_bodies": 1,
+    "largest_body": 39,
+    "fragment_sample": [],
+    "single_stud_joints": 10,
+    "single_stud_sample": [
+      "10",
+      "16",
+      "23",
+      "24",
+      "28"
+    ],
+    "articulation_parts": 24,
+    "articulation_ratio": 0.615,
+    "spanning_ratio": 0.053
+  },
+  "structurally_sound": true,
+  "collision": {
+    "backend": "bricknet",
+    "verified": true,
+    "missing": [],
+    "tolerance_ldu": 1.0,
+    "pairs": []
+  },
+  "connection_scope": "Upright stud/receiver connections; no clutch-force or load simulation."
+}

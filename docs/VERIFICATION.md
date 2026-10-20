@@ -1,4 +1,40 @@
-# First release verification — 2026-10-20
+# V2 verification — 2026-10-20
+
+Windows, project Python 3.12.14, LEGOWorld 0.2.0, MCP 1.30.0,
+BrickNet 0.1.1 and locally compiled PyBullet 3.2.7. Official LDraw geometry and
+BrickNet convex assets are installed in `.cache/assets/`; all 60 curated parts
+have geometry and canonical colliders. The native source build succeeded on
+this machine; another Windows machine may need C++ Build Tools.
+
+`.venv/Scripts/python.exe -X utf8 -m pytest -q`: **25 passed**, zero skipped,
+12.33 seconds. Original workflow tests explicitly use fast AABB/boxes fallback.
+Dedicated precision tests use real downloaded assets and PyBullet. MCP tests
+start real subprocesses for **both** backends; the precision path attaches a
+brick to an actual slope stud, returns native images and exports successfully.
+
+Additional coverage: round parts whose AABBs overlap but convex bodies do not;
+rejection of true overlap; missing-collider export refusal; exact stud layouts;
+all 28 added parts attaching to a real base stud; read-only placement previews;
+full-state rollback after invalid replacement/group transforms; actual slope
+mesh/camera rendering; all added parts through four rotated MPD round trips;
+coincident compound-baseplate detection; unsupported import-pose rejection.
+The precision checks skip explicitly if dependencies/assets are absent, so a
+fresh machine's basic-test passes must not be represented as precision passes.
+
+`legoworld demo-v2` produced the checked-in 39-part castle gateway using **9 new
+part types**, actual mesh previews and Studio IO/MPD. Final report: 0 collisions,
+0 floating, 0 unanchored, 0 grid errors, 1 rigid body, 40 connection edges;
+BrickNet `verified=true`, tolerance 1 LDU. Overlap preflight rejected a deliberate
+conflict, and a flower recolor via validated replacement succeeded. The assistant
+visually inspected the four-view image and the isolated close-up. This is a
+deterministic demonstration, not a new autonomous LLM benchmark.
+
+Run `legoworld doctor` to inspect missing assets; run `legoworld fetch-assets`
+to install them. Actual Studio GUI opening/editing/re-saving remains unverified.
+Convex penetration and the upright connection graph do not certify load-bearing
+or clutch-force stability. The renderer uses opaque flat shading, no ray tracing.
+
+## First release verification (historical)
 
 Environment: Windows, Python 3.12.14 in the project `.venv`, MCP 1.30.0,
 Pillow 12.3.0. The MCP catalog contains 32 common parts. Upstream part 3857

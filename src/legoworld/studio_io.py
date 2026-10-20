@@ -1,18 +1,18 @@
-"""Translate the engine's bottom-face origins to standard LDraw top origins."""
+"""Translate per-part bottom origins to standard LDraw coordinates."""
 
 from copy import deepcopy
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from lego_mcp import server as engine
+from legoworld.catalog import bottom_origin
 
 
 def studio_mpd() -> str:
-    """Export common upright parts without shifting plates into adjacent bricks."""
+    """Export upright parts using their measured origin offsets, including X/Z."""
     state = deepcopy(engine.STATE)
     for instance in state.parts.values():
-        part = engine.PART_INDEX[instance.part_id]
-        offset = engine.matrix_apply(engine.effective_matrix(instance), (0, -part.height, 0))
+        offset = engine.matrix_apply(engine.effective_matrix(instance), tuple(-v for v in bottom_origin(instance.part_id)))
         instance.x += offset[0]
         instance.y += offset[1]
         instance.z += offset[2]
@@ -44,8 +44,13 @@ def load_studio_model(path: Path) -> int:
     for instance in instances:
         if instance.part_id not in engine.PART_INDEX:
             raise ValueError(f"Part {instance.part_id} is outside the MVP catalog.")
-        part = engine.PART_INDEX[instance.part_id]
-        offset = engine.matrix_apply(engine.effective_matrix(instance), (0, part.height, 0))
+        matrix = engine.effective_matrix(instance)
+        upright = next((name for name in ("identity", "rot90y", "rot180y", "rot270y")
+                        if all(abs(a-b) < 1e-5 for a, b in zip(matrix, engine.resolve_rotation(name)))), None)
+        if upright is None:
+            raise ValueError("V2 imports upright quarter-turn Y rotations only; unsupported pose was not loaded.")
+        instance.rotation, instance.matrix = upright, None
+        offset = engine.matrix_apply(engine.effective_matrix(instance), bottom_origin(instance.part_id))
         instance.x += offset[0]
         instance.y += offset[1]
         instance.z += offset[2]

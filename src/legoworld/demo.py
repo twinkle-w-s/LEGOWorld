@@ -23,7 +23,8 @@ def run_demo() -> dict:
     server.review_model("Initial house; deterministic offline demo.")
     # Deliberately duplicate a part through the engine, allowing the validator
     # to expose an error that an agent would have to diagnose and repair.
-    first = next(iter(engine.STATE.parts.values()))
+    first = min(engine.STATE.parts.values(), key=lambda p:
+                engine.PART_INDEX[p.part_id].width * engine.PART_INDEX[p.part_id].depth)
     duplicate = engine.add_part(first.part_id, "blue", first.x, first.y, first.z)
     conflict = engine.validate_model()
     server.review_model("Deliberate overlap to exercise diagnostic feedback.")
