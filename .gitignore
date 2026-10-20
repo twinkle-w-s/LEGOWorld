@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.cache/
+build/
+dist/
+outputs/
+.mcp.json
+.env
+.env.*
+!.env.example

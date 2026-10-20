@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legoworld"
+version = "0.1.0"
+description = "A small LEGO design, validation, visual-review and Studio export MCP server."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "lego-mcp @ https://codeload.github.com/jonx/BrickBuilderMCP/zip/f397a80993e6e2d36aed50b96d2b6f7200fc1694",
+    "mcp==1.30.0",
+    "Pillow==12.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+legoworld = "legoworld.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

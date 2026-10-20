@@ -1,0 +1,28 @@
+{
+  "valid": true,
+  "errors": [],
+  "summary": {
+    "parts": 73,
+    "connections": 126,
+    "collisions": 0,
+    "unknown_parts": 0,
+    "floating": 0,
+    "unanchored": 0,
+    "grid_alignment_errors": 0,
+    "vertical_seam_score": 23,
+    "wall_bond_quality": 0.361,
+    "errors_truncated": false,
+    "rigid_bodies": 1
+  },
+  "structure": {
+    "rigid_bodies": 1,
+    "largest_body": 73,
+    "fragment_sample": [],
+    "single_stud_joints": 0,
+    "single_stud_sample": [],
+    "articulation_parts": 1,
+    "articulation_ratio": 0.014,
+    "spanning_ratio": 0.653
+  },
+  "structurally_sound": true
+}
