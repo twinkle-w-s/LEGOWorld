@@ -1,45 +1,56 @@
+import json
 from zipfile import ZipFile
 
+import numpy as np
 import pytest
 
-from legoworld import server
-from legoworld.studio_io import load_studio_model, studio_mpd, write_io
+from legoworld.backend import b, pack, unpack
+from legoworld.build import expose_port
+from legoworld.studio_io import parse_mpd, read_model, write_io
 
 
-def test_mixed_brick_and_plate_have_correct_ldraw_top_origins(tmp_path):
-    engine = server.engine
-    engine.add_part("3001", "red", 0, 0, 0)
-    engine.add_part("3020", "blue", 0, -24, 0)
-    text = studio_mpd()
-    native = engine.parse_ldr_text(text)
-    assert [(p.part_id, p.y) for p in native] == [("3001", -24), ("3020", -32)]
-    # The actual LDraw bodies extend downward from their top origins.
-    assert native[1].y + 8 == native[0].y
-    assert engine.STATE.parts["1"].y == 0  # export must not mutate the live scene
-    path = tmp_path / "stack.io"
+def poses(model):
+    return [(p.stem, p.color, np.array(p.pose.matrix)) for p in b.parts(model)]
+
+
+def test_native_hierarchy_io_and_json_round_trip(tmp_path):
+    component = b.Assembly("roof")
+    part = component.add("3039", color="red")
+    expose_port(component, "bottom", part.hole[0])
+    model = b.Assembly("scene")
+    model.add(component, pose=b.spin((1, 0, 0), 90), color="blue")
+    model.add(component, pose=b.move(100, 20, -10) @ b.spin(b.UP, 37))
+    text = b.ldraw(model)
+    path = tmp_path / "model.io"
     write_io(path, text)
     with ZipFile(path) as archive:
-        assert archive.testzip() is None
-        assert archive.read("model.ldr").decode("utf-8") == text
-    assert load_studio_model(path) == 2
-    assert [(p.part_id, p.y, p.color) for p in engine.STATE.parts.values()] == [
-        ("3001", 0, 4), ("3020", -24, 1),
-    ]
-    assert engine.validate_model()["valid"] is True
+        assert archive.namelist() == ["model.ldr"]
+    imported = read_model(path)
+    for original, actual in zip(poses(model), poses(imported)):
+        assert original[:2] == actual[:2]
+        np.testing.assert_allclose(original[2], actual[2], atol=1e-10)
+    assert imported.children[0].what is imported.children[1].what
+    restored = unpack(json.loads(json.dumps(pack(model))))
+    assert restored.children[0].what is restored.children[1].what
+    assert b.ldraw(restored) == text
+    # MPD has geometry only. Project JSON additionally preserves the ports.
+    assert getattr(restored.children[0].what, "_legoworld_ports")["bottom"].type == "hole"
 
 
-@pytest.mark.parametrize("rotation", ["identity", "rot90y", "rot180y", "rot270y"])
-def test_export_import_preserves_transforms_colors_and_subassemblies(tmp_path, rotation):
-    engine = server.engine
-    engine.set_current_subassembly("tower")
-    engine.add_part("3004", "yellow", 40, 0, 20, rotation)
-    before = next(iter(engine.STATE.parts.values()))
-    expected = (before.part_id, before.color, before.x, before.y, before.z,
-                engine.effective_matrix(before))
-    path = tmp_path / "tower.mpd"
-    path.write_text(studio_mpd(), encoding="utf-8")
-    load_studio_model(path)
-    after = next(iter(engine.STATE.parts.values()))
-    assert (after.part_id, after.color, after.x, after.y, after.z,
-            engine.effective_matrix(after)) == expected
-    assert "tower" in after.subassembly
+def test_alias_import_applies_native_wrapper():
+    from bricknet.data import load_aliases
+    stem = "3023"
+    canonical, wrapper = load_aliases()[stem]
+    imported = parse_mpd("0 old\n1 4 10 20 30 1 0 0 0 1 0 0 0 1 3023.dat\n")
+    placed = b.parts(imported)[0]
+    assert placed.stem == canonical
+    np.testing.assert_allclose(placed.pose.matrix, b.move(10, 20, 30).matrix @ wrapper)
+
+
+@pytest.mark.parametrize("text", [
+    "0 FILE a.ldr\n1 4 0 0 0 1 0 0 0 1 0 0 0 1 a.ldr",
+    "0 FILE a.ldr\n0 FILE A.ldr\n",
+    "0 bad\n1 4 0 0 0 2 0 0 0 1 0 0 0 1 3001.dat"])
+def test_bad_imports_rejected(text):
+    with pytest.raises((ValueError, KeyError)):
+        parse_mpd(text)

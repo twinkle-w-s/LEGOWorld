@@ -33,7 +33,7 @@ def fetch_assets() -> None:
             partial = path.with_suffix(path.suffix + ".partial")
             print(f"Downloading {name} ...", flush=True)
             with httpx.stream("GET", url, follow_redirects=True, timeout=120,
-                              headers={"User-Agent": "LEGOWorld/0.2"}) as response:
+                              headers={"User-Agent": "LEGOWorld/0.3"}) as response:
                 response.raise_for_status()
                 with partial.open("wb") as stream:
                     for chunk in response.iter_bytes():

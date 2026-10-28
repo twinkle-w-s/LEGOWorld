@@ -1,0 +1,28 @@
+{
+  "backend": "brickagent/bricknet",
+  "tolerance_ldu": 1.0,
+  "parts": 264,
+  "revision": 3,
+  "geometry_valid": true,
+  "connections_valid": true,
+  "stability": {
+    "checked": true,
+    "stable": true,
+    "max_displacement_ldu": 3.0
+  },
+  "exportable": true,
+  "batch_valid": true,
+  "seconds": 2.0352506999624893,
+  "graph": {
+    "nodes": 264,
+    "edges": 416,
+    "components": 1,
+    "component_sizes": [
+      264
+    ]
+  },
+  "issues": [],
+  "issue_count": 0,
+  "collision_pairs": [],
+  "collision_pair_count": 0
+}

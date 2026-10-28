@@ -1,38 +1,34 @@
-"""An offline tool-chain check, deliberately not presented as LLM generation."""
+"""Deterministic hybrid demonstration; no language-model API is called."""
 
-from legoworld import server
+from pathlib import Path
+from time import perf_counter
+
+from legoworld.backend import uid
+from legoworld.document import flat_records
+from legoworld.project import write_json
 
 
-def run_demo() -> dict:
-    """Build a small house, demonstrate a conflict/repair, review and export."""
-    engine, helpers = server.engine, server.helpers
-    engine.create_model("demo_house")
-    engine.add_part("3811", "green", 0, 0, 0, strict=True)
-    helpers.build_floor(-160, -120, 160, 120, y=-4, color="green", part_id="3031")
-    helpers.build_room(
-        -100, -60, 100, 60, height_rows=5, base_y=-12, color="tan",
-        openings={"south": [{"center": 100, "width": 40, "bottom_row": 0,
-                              "height_rows": 3, "type": "door"}]},
-    )
-    helpers.build_stepped_gable_roof(
-        -120, -80, 120, 80, eave_y=-132, ridge_axis="z", color="red",
-    )
-    before = engine.validate_model()
-    if not before["valid"] or not before.get("structurally_sound", True):
-        return {"ok": False, "phase": "build", "validation": before}
-    server.review_model("Initial house; deterministic offline demo.")
-    # Deliberately duplicate a part through the engine, allowing the validator
-    # to expose an error that an agent would have to diagnose and repair.
-    first = min(engine.STATE.parts.values(), key=lambda p:
-                engine.PART_INDEX[p.part_id].width * engine.PART_INDEX[p.part_id].depth)
-    duplicate = engine.add_part(first.part_id, "blue", first.x, first.y, first.z)
-    conflict = engine.validate_model()
-    server.review_model("Deliberate overlap to exercise diagnostic feedback.")
-    engine.remove_part(duplicate["instance_id"])
-    repaired = engine.validate_model()
-    server.review_model("Removed the colliding duplicate; green ground and red roof retained.")
-    result = server.export_model()
-    result["collision_detected"] = conflict["summary"]["collisions"] > 0
-    result["repair_passed"] = repaired["valid"] and repaired.get("structurally_sound", True)
-    server._write_json(server.model_directory() / "demo.json", result)
+def run_demo(project):
+    source = Path(__file__).resolve().parents[2] / "examples/builds/castle_v3.py"
+    if not source.is_file():
+        raise FileNotFoundError("The demo requires a source checkout with examples/builds/castle_v3.py")
+    script = project.outputs / "demo_scripts" / (uid() + ".py")
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    started = perf_counter()
+    built = project.mutate("build", project.revision, path=str(script), parameters={},
+                          mode="replace_model", target_id="root")
+    if not built["ok"]:
+        return built
+    lamp = next(p for p in flat_records(project.document) if p["stem"] == "6141")
+    edited = project.mutate("edit", project.revision, operations=[
+        {"op": "recolor", "node_id": lamp["id"], "color": "orange"}])
+    if not edited["ok"]:
+        return edited
+    result = project.export()
+    result.update({"construction_requests": 1, "refinement_requests": 1,
+                   "seconds": perf_counter()-started, "deterministic_demo": True,
+                   "definitions": len(project.document["definitions"])})
+    if result["ok"]:
+        write_json(Path(result["project"]).parent / "demo.json", result)
     return result

@@ -1,62 +1,53 @@
-"""CLI for serving tools, generating client config, and a deterministic smoke demo."""
-
-from __future__ import annotations
+"""Local CLI for the hybrid BrickAgent/MCP workflow."""
 
 import argparse
 import json
-import sys
 from pathlib import Path
+import sys
 
 
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser(prog="legoworld")
-    parser.add_argument("command", choices=("serve", "demo", "mcp-config", "doctor", "fetch-assets", "demo-v2"))
+    parser.add_argument("command", choices=("serve", "doctor", "fetch-assets", "mcp-config", "run", "demo", "demo-v3"))
+    parser.add_argument("path", nargs="?")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument("--parameters", default="{}")
+    parser.add_argument("--full", action="store_true", help="doctor: scan all supported parts and recursive assets")
     args = parser.parse_args()
     workspace = args.workspace.resolve()
     if args.command == "mcp-config":
-        print(json.dumps({"mcpServers": {"legoworld": {
-            "command": sys.executable,
-            "args": ["-X", "utf8", "-m", "legoworld", "serve", "--workspace", str(workspace)],
-        }}}, indent=2))
+        print(json.dumps({"mcpServers": {"legoworld": {"command": sys.executable,
+            "args": ["-X", "utf8", "-m", "legoworld", "serve", "--workspace", str(workspace)]}}}, indent=2))
         return
     if args.command == "fetch-assets":
         from legoworld.assets import fetch_assets
         fetch_assets()
         return
+    if args.command == "doctor":
+        from importlib.metadata import version
+        from legoworld.catalog import doctor
+        print(json.dumps({"python": sys.version.split()[0], "brickagent": version("brickagent"),
+            "bricknet": version("bricknet"), **doctor(args.full)}, indent=2))
+        return
     from legoworld import server
     server.configure(workspace)
     if args.command == "serve":
-        # Initialize native libraries before starting the stdio event loop.
-        from legoworld.precision import collision_report
-        collision_report([])
         server.mcp.run(transport="stdio")
-    elif args.command == "doctor":
-        from importlib.metadata import version
-        from legoworld.precision import collision_report
-        from legoworld.assets import ldraw_root, collider_root
-        from legoworld.catalog import RECORDS
-        print(json.dumps({
-            "python": sys.version.split()[0], "mcp": version("mcp"),
-            "lego-mcp": version("lego-mcp"), "pillow": version("Pillow"),
-            "workspace": str(workspace), "catalog_parts": len(server.engine.PART_INDEX),
-            "collision": collision_report([]),
-            "ldraw_library": str(ldraw_root()), "geometry_installed": (ldraw_root()/"parts/3001.dat").is_file(),
-            "collider_library": str(collider_root()),
-            "missing_geometry": [pid for pid in RECORDS if not (ldraw_root()/"parts"/(pid+".dat")).is_file()],
-            "missing_colliders": [pid for pid, r in RECORDS.items()
-                                  if not (collider_root()/"cvx"/(r["collider"]+".cvx.obj")).is_file()],
-            "agent": "Connect a multimodal MCP host; no model API is called by this server.",
-        }, indent=2))
+        return
+    if args.command in ("demo", "demo-v3"):
+        from legoworld.demo import run_demo
+        result = run_demo(server.PROJECT)
     else:
-        if args.command == "demo-v2":
-            from legoworld.demo_v2 import run_demo
-        else:
-            from legoworld.demo import run_demo
-        result = run_demo()
-        print(json.dumps(result, indent=2))
-        if not result["ok"]:
-            raise SystemExit(1)
+        if not args.path:
+            parser.error("run requires a Python build script path")
+        project = server.PROJECT
+        result = project.mutate("build", project.revision, path=args.path,
+            parameters=json.loads(args.parameters), mode="replace_model", target_id="root")
+        result.pop("document", None)
+    from legoworld.design_tools import present
+    print(json.dumps(present(result), indent=2, ensure_ascii=False))
+    if not result["ok"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

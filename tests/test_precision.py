@@ -1,126 +1,143 @@
 from copy import deepcopy
-import importlib.util
 
 import numpy as np
 import pytest
 
-from legoworld import server
-from legoworld.assets import collider_root, ldraw_root
-from legoworld.catalog import RECORDS
-from legoworld import design_tools as tools
-from legoworld.geometry import mesh, render_png
-from legoworld.precision import collision_report, ldraw_matrix
-from legoworld.studio_io import studio_mpd, load_studio_model
+from legoworld.backend import b, pack, unpack
+from legoworld.document import entries, flat_records
+from legoworld.editing import apply_operations
+from legoworld.precision import validate_document
 
 
-@pytest.fixture(autouse=True)
-def precision_backend(monkeypatch):
-    if (importlib.util.find_spec("pybullet") is None or
-            not (collider_root()/"cvx/3001.cvx.obj").is_file() or
-            not (ldraw_root()/"parts/3001.dat").is_file()):
-        pytest.skip("Install .[precision] and run legoworld fetch-assets for real-asset integration checks")
-    monkeypatch.setenv("LEGOWORLD_COLLISION", "bricknet")
-    monkeypatch.setenv("LEGOWORLD_RENDERER", "ldraw")
+def assembly(kind):
+    specs = {"stud": ("3001", "3005", "stud", "hole"),
+             "side": ("87087", "6141", "open", "tube"),
+             "pin": ("technic beam 5", "2780", "socket", "pin"),
+             "axle": ("technic beam 5", "3705", "socket", "axle"),
+             "hinge": ("2926", "6014b", "hinge", "hinge"),
+             "ball": ("22890", "14418", "ball", "ball")}
+    base, top, a, c = specs[kind]
+    model = b.Assembly(kind)
+    lower = model.add(base, color="red")
+    options = {"orient": b.spin(b.UP, 150)} if kind == "ball" else {}
+    model.attach(top, to=getattr(lower, a)[0], by=(c, 0), color="yellow", **options)
+    return model
 
 
-def test_round_parts_clear_despite_overlapping_boxes_and_true_overlap_rejected():
-    server.add_part("3941", "red", 0, 0, 0)
-    server.add_part("3941", "blue", 30, 0, 30)
-    a, b = list(server.engine.STATE.parts.values())
-    assert server.engine.aabbs_overlap(server.engine.part_aabb_world(a, server.engine.PART_INDEX[a.part_id]),
-                                      server.engine.part_aabb_world(b, server.engine.PART_INDEX[b.part_id]))
-    assert collision_report()["verified"] and collision_report()["pairs"] == []
-    with pytest.raises(ValueError):
-        server.add_part("3941", "yellow", 0, 0, 0)
-    assert len(server.engine.STATE.parts) == 2
+@pytest.mark.parametrize("kind", ("stud", "side", "pin", "axle", "hinge", "ball"))
+def test_native_connector_and_collision_parity(real_assets, kind):
+    model = assembly(kind)
+    b.check(model, stability=False)
+    doc = pack(model)
+    report = validate_document(doc)
+    assert report["batch_valid"] and not report["exportable"]
+    assert len(report["graph"]["edges"]) == len(b.connections(model).edges)
+    assert report["collision_pairs"] == list(b.clashes(model)) == []
+    assert len(b.attachments(unpack(doc))) == 1
+    assert not report["stability"]["checked"]
 
 
-def test_missing_colliders_block_finalization(monkeypatch, tmp_path):
-    server.add_part("3001", "red", 0, 0, 0)
-    monkeypatch.setenv("BRICKNET_DATA", str(tmp_path/"missing"))
-    report = server.engine.validate_model()
-    assert not report["valid"] and not report["collision"]["verified"]
-    assert report["collision"]["missing"] == ["1"]
-    assert server.export_model()["ok"] is False
+def test_nested_shared_roundtrip_inherits_poses_colors_and_authored_joins(real_assets):
+    unit = assembly("stud")
+    middle = b.Assembly("middle")
+    middle.add(unit, pose=b.move(20, 0, 0))
+    scene = b.Assembly("scene")
+    scene.add(middle, pose=b.spin(b.UP, 90), color="blue")
+    scene.add(middle, pose=b.move(120, 0, 0))
+    doc = pack(scene)
+    restored = unpack(doc)
+    assert restored.children[0].what is restored.children[1].what
+    assert b.ldraw(restored) == b.ldraw(scene)
+    actual, expected = flat_records(doc), b.parts(scene)
+    assert len(actual) == len(expected) == 4
+    for a, e in zip(actual, expected):
+        assert (a["stem"], a["color"]) == (e.stem, e.color)
+        np.testing.assert_allclose(a["pos"], e.pos)
+        np.testing.assert_allclose(a["rot"], e.rot)
+    assert validate_document(doc)["batch_valid"]
 
 
-def test_real_connector_attachment_and_preview_dont_guess_full_top_grid():
-    base = server.add_part("3039", "red", 0, 0, 0)["instance_id"]
-    points = tools.get_connectors("3039", base)["connectors"]
-    assert len([p for p in points if p["type"] == "stud_top"]) == 2
-    assert points[0]["local"] == (-10, -24, 10)
-    before = deepcopy(server.engine.STATE)
-    assert tools.preview_placement("3005", -10, -24, 10)["ok"]
-    assert server.engine.STATE == before
-    receiver = next(p["index"] for p in tools.get_connectors("3005")["connectors"] if p["type"] == "stud_receiver_bottom")
-    assert tools.attach_part(base, 0, "3005", receiver, "yellow")["ok"]
-    assert server.engine.validate_model()["valid"]
-    assert not tools.preview_placement("3005", -10, -24, -10)["ok"]
+def test_copy_on_write_keeps_other_instances_and_connectors(real_assets):
+    unit = assembly("stud")
+    scene = b.Assembly("scene")
+    scene.add(unit)
+    scene.add(unit, pose=b.move(120, 0, 0))
+    doc = pack(scene)
+    leaves = flat_records(doc)
+    original = deepcopy(doc)
+    edited, _ = apply_operations(doc, [{"op": "recolor", "node_id": leaves[1]["id"], "color": "green"}])
+    assert doc == original
+    colors = [p["color"] for p in flat_records(edited)]
+    assert colors[1] == b.color("green") and colors[3] == b.color("yellow")
+    assert unpack(edited).children[0].what is not unpack(edited).children[1].what
+    assert validate_document(edited)["batch_valid"]
 
 
-def test_all_added_parts_attach_to_real_base_studs():
-    for pid, record in RECORDS.items():
-        if not record["added_in_v2"]:
-            continue
-        server.create_model("attach_"+pid)
-        server.add_part("3031", "light_bluish_gray", 0, 0, 0)
-        receiver = next(p["index"] for p in tools.get_connectors(pid)["connectors"]
-                        if p["type"] == "stud_receiver_bottom")
-        attached = tools.attach_part("1", 0, pid, receiver, "red")
-        assert attached["ok"], (pid, attached)
-        assert server.engine.validate_model()["valid"], pid
+def test_near_miss_graph_does_not_satisfy_exact_authored_join(real_assets):
+    doc = pack(assembly("stud"))
+    leaf = flat_records(doc)[1]["id"]
+    changed, _ = apply_operations(doc, [{"op": "transform", "node_id": leaf, "pose": {"t": [0, -.01, 0]}}])
+    report = validate_document(changed)
+    assert report["geometry_valid"] and len(report["graph"]["edges"]) == 1
+    assert not report["connections_valid"] and not report["batch_valid"]
+    assert "Non-exact connection" in report["issues"][-1]["message"]
 
 
-def test_replace_and_group_transform_rollback_all_model_state():
-    server.add_part("3001", "red", 0, 0, 0)
-    server.add_part("3020", "blue", 0, -24, 0)
-    before = deepcopy(server.engine.STATE)
-    assert tools.replace_part("1", "3020")["rolled_back"]
-    assert server.engine.STATE == before
-    assert tools.transform_group(["1", "2"], dx=20, quarter_turns=1)["ok"]
-    assert server.engine.STATE.parts["1"].x == 20
-    before = deepcopy(server.engine.STATE)
-    assert tools.transform_group(["1", "2"], dy=-100)["rolled_back"]
-    assert server.engine.STATE == before
+def test_explicit_detach_then_move_preserves_other_authored_joins(real_assets):
+    doc = pack(assembly("stud"))
+    a, c = [p["id"] for p in flat_records(doc)]
+    edited, _ = apply_operations(doc, [
+        {"op": "detach", "a": {"node_id": a, "type": "stud", "index": 0},
+         "b": {"node_id": c, "type": "hole", "index": 0}},
+        {"op": "transform", "node_id": c, "pose": {"t": [100, 0, 0]}}])
+    assert validate_document(edited)["batch_valid"]
+    assert len(b.attachments(unpack(edited))) == 0
 
 
-@pytest.mark.parametrize("rotation", tools.ROTATIONS)
-def test_all_28_new_parts_geometry_colliders_and_origin_round_trip(rotation, tmp_path):
-    assert len(RECORDS) == 60
-    additions = {p: r for p, r in RECORDS.items() if r["added_in_v2"]}
-    assert len(additions) == 28
-    for index, (pid, record) in enumerate(additions.items()):
-        assert len(mesh(pid+".dat")[0]) > 0
-        assert (collider_root()/"cvx"/(record["collider"]+".cvx.obj")).is_file()
-        server.engine.add_part(pid, "red", index*300, 0, 0, rotation, strict=True)
-    poses = {p.part_id: ldraw_matrix(p) for p in server.engine.STATE.parts.values()}
-    path = tmp_path/"new-parts.mpd"
-    path.write_text(studio_mpd(), encoding="utf-8")
-    load_studio_model(path)
-    for p in server.engine.STATE.parts.values():
-        np.testing.assert_allclose(ldraw_matrix(p), poses[p.part_id], atol=1e-5)
+def test_duplicate_compound_baseplate_preflight_avoids_native_query(real_assets, monkeypatch):
+    model = b.Assembly("duplicates")
+    model.add("3811")
+    model.add("3811")
+    monkeypatch.setattr(b, "clashes", lambda _: pytest.fail("Duplicate poses must be caught before Bullet"))
+    report = validate_document(pack(model))
+    assert not report["batch_valid"]
+    assert report["issues"][0]["type"] == "duplicate_pose"
 
 
-def test_render_uses_actual_slope_geometry_and_camera():
-    server.add_part("3039", "red", 0, 0, 0)
-    slope = render_png(90, 0, 300, 250)
-    assert tools.replace_part("1", "3003")["ok"]
-    brick = render_png(90, 0, 300, 250)
-    assert slope != brick
-    assert brick != render_png(35, 28, 300, 250)
+def test_round_solids_clear_when_boxes_overlap_and_true_collision_matches_native(real_assets):
+    model = b.Assembly("round")
+    model.add("3941")
+    model.add("3941", pose=b.move(30, 0, 30))
+    doc = pack(model)
+    assert validate_document(doc)["batch_valid"]
+    ids = [p["id"] for p in flat_records(doc)]
+    overlap, _ = apply_operations(doc, [{"op": "transform", "node_id": ids[1], "pose": {"t": [-20, 0, -20]}}])
+    native = b.clashes(unpack(overlap))
+    report = validate_document(overlap)
+    assert native and len(report["collision_pairs"]) == len(native)
+    assert not report["batch_valid"]
 
 
-def test_coincident_compound_baseplates_are_detected_without_native_contact_overflow():
-    server.engine.add_part("3811", "green", 0, 0, 0)
-    server.engine.add_part("3811", "blue", 0, 0, 0)
-    assert collision_report()["pairs"] == [["1", "2"]]
+def test_missing_assets_never_pass(real_assets, monkeypatch, tmp_path):
+    model = b.Assembly("missing")
+    model.add("3001")
+    monkeypatch.setenv("BRICKNET_DATA", str(tmp_path / "not-installed"))
+    report = validate_document(pack(model), True)
+    assert not report["geometry_valid"] and not report["exportable"]
+    assert report["issues"][0]["type"] == "missing_assets"
 
 
-def test_unsupported_import_orientation_preserves_current_model(tmp_path):
-    server.add_part("3001", "red", 0, 0, 0)
-    before = deepcopy(server.engine.STATE)
-    path = tmp_path/"tilted.ldr"
-    path.write_text("0 Unsupported pose\n1 4 0 0 0 1 0 0 0 0 -1 0 1 0 3001.dat\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="upright"):
-        load_studio_model(path)
-    assert server.engine.STATE == before
+def test_final_stability_allows_multiple_bodies_and_rejects_floating_body(real_assets):
+    model = b.Assembly("scene")
+    model.add("3001")
+    model.add("3005", pose=b.move(100, 0, 0))
+    # Native origins differ by height: put the smaller brick's bottom on the same floor.
+    assert validate_document(pack(model), True)["exportable"]
+    model = b.Assembly("floating")
+    model.add("3001")
+    model.add("3005", pose=b.move(100, -80, 0))
+    doc = pack(model)
+    assert validate_document(doc)["batch_valid"]
+    final = validate_document(doc, True)
+    assert final["stability"]["checked"] and final["stability"]["stable"] is False
+    assert not final["exportable"]

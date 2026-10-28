@@ -1,21 +1,26 @@
-# Working on LEGOWorld
+# Working on LEGOWorld V3
 
-For LEGO design requests, connect the LEGOWorld MCP server and read
-`skills/lego-builder/SKILL.md`. Use its native image feedback for visual review.
-The server supplies tools; the connected multimodal agent handles language,
-planning and appearance decisions. `legoworld demo` is an offline smoke test.
+For LEGO design requests, read skills/lego-builder/SKILL.md. The external multimodal
+agent writes Python and interprets native MCP images; this service calls no LLM API.
 
-For implementation work, use the local `.venv` interpreter. Run
-`python -m pytest -q` with that interpreter after changes to the workflow.
-Keep modeling, checks, rendering and export on the same upstream engine state.
-Studio export converts bottom-face engine positions to top-face LDraw origins;
-mixed brick/plate and rotated-part round trips must keep passing.
+Use the project .venv interpreter. Run python -m pytest -q after workflow changes.
+Keep Python builds, MCP edits, validation, rendering and export on the same V3 project
+document. Materialize it through the pinned BrickAgent bridge; never reintroduce a
+separate BrickBuilderMCP state or synthesized stud grid.
 
-Keep generated work in `outputs/`. V2 has a frozen 60-part upright catalog;
-`catalog.json` records measured LDraw origins and BrickNet stud/receiver labels.
-Never synthesize a full stud grid for slopes, arches, corners or jumpers.
-The default collision backend is BrickNet; missing colliders must block export.
-Actual LDraw meshes supply preview geometry. `aabb`/`boxes` are explicit fallback
-environment settings, not precision validation. See docs/V2.md for asset setup.
-Run precision tests with real assets installed; report skips separately from passes.
-Do not claim full physical simulation or tested Studio GUI compatibility.
+Coordinates are native LDraw, -Y up, with per-part native origins and general proper
+rigid rotations. Export needs no bottom-origin correction. Tests must retain hierarchy,
+color inheritance, alias transforms, authored contacts and non-upright MPD round trips.
+
+Backend private-member access belongs in backend.py. Keep scene edits copy-on-write,
+revision-guarded and atomic. Rebuilding a component invalidates its descendants;
+external authored joins must rebind through named ports or fail. Do not silently
+drop authored joins. Native collisions/checks run in disposable processes.
+
+Missing recursive geometry or colliders must block verification. No AABB fallback.
+Batch checks skip stability; export runs complete native checks. Do not mark an
+unfinished draft exportable. Report real-asset test skips separately.
+
+Keep generated work in outputs/. Preserve user .claude/ and credentials. The V2
+catalog.json is now only the common-part selection/history, not the runtime engine.
+Do not claim full force/deformation simulation or tested Studio GUI compatibility.

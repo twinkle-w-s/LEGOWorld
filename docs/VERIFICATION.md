@@ -1,4 +1,63 @@
-# V2 verification — 2026-10-20
+# V3 verification — 2026-10-28
+
+Windows, project Python 3.12.14, LEGOWorld 0.3.0, MCP 1.30.0,
+BrickAgent 0.1.0, BrickNet 0.1.1 and PyBullet 3.2.7.
+
+Final suite: **31 passed, zero skipped**, 60.62 seconds. `pip check` and
+`compileall` passed. All native integration checks used real geometry/colliders.
+Missing assets cause explicit skips on a fresh machine, not precision passes.
+
+The suite compares native stud, SNOT, pin, axle, hinge and ball assemblies with
+upstream BrickAgent. It covers shared/nested definitions, inherited colors,
+authored-contact JSON persistence, copy-on-write edits, named-port replacement,
+explicit detach, stale revisions, failure candidates, script exceptions,
+timeout/process exit, invalid poses/imports, recursive asset dependencies,
+duplicate compound-baseplate preflight, arbitrary poses, alias transforms,
+MPD/IO hierarchy, multiple stable bodies and floating-body rejection.
+
+A real stdio MCP client starts the server, executes a Python script, edits a
+single shared occurrence, queries the graph, receives a native four-view image,
+exports the assembly and reimports its MPD. A first failing run exposed a Windows
+stdio worker hang. The implementation now separates child stdin/log output and
+dispatches synchronous work outside the MCP event loop; this path passes.
+
+`legoworld doctor --full` checked **14,441** supported part types, including
+26,699 geometry files reached recursively; all required assets were available
+on this machine. This is an asset-completeness check, not exhaustive validation
+of every part/connector combination.
+
+`legoworld demo-v3` built a **264-part** modular castle with shared towers, SNOT
+lamps and a double-supported arch, then applied a local recolor and exported.
+Final result: 0 collision pairs, 416 graph edges, 1 component, exact authored
+contacts passed, rigid-body stability passed, exportable=true. The assistant
+inspected both the four-view sheet and the oblique image. Files are under
+`examples/v3_castle/`; the complete editable project is also in local outputs.
+Studio GUI opening/editing/saving is still a manual acceptance step.
+The 264-part IO ZIP and MPD payload were also checked directly; re-import retained
+part identities, colors and poses within 1e-10 and passed full stability again.
+
+## Deterministic construction timing
+
+`scripts/benchmark_v3.py` replays identical final geometry through the transaction
+API used by MCP, with real disposable workers and durable snapshots:
+
+| Method | Construction requests | Batch validations | Construction time | Native validation time |
+| --- | ---: | ---: | ---: | ---: |
+| One flat part per transaction | 264 | 264 | 560.38 s | 29.42 s |
+| One hierarchical Python build | 1 | 1 | 2.36 s | 0.21 s |
+
+Both final assemblies passed stability; both had 416 inferred edges. The request
+reduction was 99.62%. Timings are one local development sample, include process
+startup and persistence, and exclude MCP transport, LLM time, rendering and final
+validation. The baseline uses known-valid placements with no repairs; it does
+not compare autonomous design quality or token usage. Raw results are saved in
+`examples/v3_castle/benchmark.json`.
+
+Native stability treats connected components as rigid, with no clutch-force or
+deformation model. The CPU preview uses opaque flat shading. The deterministic
+demo and timing are separate from any general agent's aesthetic evaluation.
+
+# V2 verification — 2026-10-20 (historical branch)
 
 Windows, project Python 3.12.14, LEGOWorld 0.2.0, MCP 1.30.0,
 BrickNet 0.1.1 and locally compiled PyBullet 3.2.7. Official LDraw geometry and

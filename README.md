@@ -1,95 +1,82 @@
-# LEGOWorld v0.2
+# LEGOWorld V3
 
-自然语言设计乐高：**通用多模态 Agent → MCP 搭建 → 几何碰撞检查 → 图片反馈 → 局部修改 → Studio `.io` / `.mpd`**。
+自然语言 → 外部通用 agent 编写 Python / 调用 MCP → BrickAgent 层级建模 → BrickNet 碰撞与连接图 → 多视图审查 → 局部精修 → Studio IO / MPD。
 
-第二版保留 [BrickBuilderMCP](https://github.com/jonx/BrickBuilderMCP) 的单份模型状态，接入 [BrickNet](https://github.com/kulits/BrickNet) 凸分解碰撞体和 PyBullet；预览改为读取官方 LDraw 实际三角面，由本地 CPU 深度缓冲渲染。斜面、圆形、圆锥、拱洞和底部空腔不再统一画成方盒。
+V3 使用 **一份可保存的层级模型**。Python 负责循环、参数和组件复用；MCP 保留搜索、连接点查询、批量编辑、预检、看图及导出。脚本执行和工具编辑都经过事务检查，失败时保留当前模型。
 
-![V2 real-geometry detail](examples/v2_castle_gate/detail.png)
+![264-piece modular castle](examples/v3_castle/detail.png)
 
-[Studio IO](examples/v2_castle_gate/model.io) · [MPD](examples/v2_castle_gate/model.mpd) · [四视图](examples/v2_castle_gate/preview.png) · [验证记录](docs/VERIFICATION.md) · [实现和论文借鉴](docs/V2.md)
+[示例脚本](examples/builds/castle_v3.py) · [完整使用与迁移](docs/V3.md) · [验证记录](docs/VERIFICATION.md) · [第三方来源](THIRD_PARTY.md)
 
-## 第二版能力
+## 开始使用
 
-- 目录从 **32 种增加到 60 种**，新增 28 种：斜坡、曲面坡、拱门、圆砖、圆板、圆锥、转角板、跳线板等。完整列表见 [目录说明](docs/V2.md)。
-- 实际凸碰撞体检查，沿用 BrickNet 的 **1 LDU 穿透容差**。包围盒相交不再直接判为碰撞。缺失碰撞体会显示未验证并阻止最终导出。
-- 使用测得的直立凸点/接收孔位置；斜坡、拱门和跳线板不再假设完整凸点网格。
-- 增加连接点查询/吸附、放置预检、零件检查/替换、整组移动旋转、尺寸测量和自选角度/局部渲染。替换与整组变换失败时恢复原状态。
-- 检查、渲染、审查、导出共用同一模型。导出按零件分别转换 LDraw 原点，覆盖斜坡和转角件的水平偏移。
-- 自然语言理解、看图和审美调整仍由 Claude Code 等外部 Agent 完成，本服务不持有 API key、不直接调用模型 API。
-
-## 本机直接运行
-
-仓库当前 `.venv` 已安装第二版依赖，几何和碰撞资产位于 `.cache/assets/`：
+在仓库根目录运行，推荐 Python 3.12：
 
 ```powershell
+.\scripts\setup.ps1 -Python <Python3.12的完整路径>
+.\.venv\Scripts\python.exe -X utf8 -m legoworld fetch-assets
 .\.venv\Scripts\python.exe -X utf8 -m legoworld doctor
-.\.venv\Scripts\python.exe -X utf8 -m legoworld demo-v2
-.\.venv\Scripts\python.exe -X utf8 -m pytest -q
+.\.venv\Scripts\python.exe -X utf8 -m legoworld demo-v3
 ```
 
-`demo-v2` 是可复现的工具链示例，不调用 LLM。它生成 39 件城堡门楼，演示重叠预检、局部替换、四视图及 IO/MPD 导出。输出在 `outputs/v2_castle_gate/`。
+依赖固定为 BrickAgent 0.1.0、BrickNet 0.1.1、PyBullet 3.2.7。Windows 的 PyBullet 可能需要 Visual Studio C++ Build Tools；本机已编译。新环境下载几何和碰撞资产后再建模；启动 MCP 不会自动下载。
 
-已有 Claude Code MCP 配置继续指向同一 Python/模块入口；**重连 MCP 或重启 Claude Code** 以重新发现工具。可用以下命令生成配置参考，再按客户端格式合并，不会自动覆盖现有配置：
+`demo-v3` 生成 264 件城堡：共享塔楼、嵌套组件、侧面凸点灯饰、双支撑拱门、一次 MCP 等价批次改色，最后执行完整稳定性检查并导出。它是确定性工具链演示，不调用 LLM。会替换工作区的当前模型。
+
+生成 MCP 配置参考，合并到 Claude Code 等客户端现有配置，然后重连服务：
 
 ```powershell
 .\.venv\Scripts\python.exe -m legoworld mcp-config
 ```
 
-让 Agent 读取 [建模 skill](skills/lego-builder/SKILL.md)，从 `create_model` 开始，调用 `get_connectors` / `attach_part` 放置细节，调用 `review_model` 并实际查看图片，最后 `export_model`。新示例任务见 [prompts](examples/prompts.md)。
+本项目不调用模型 API，不需要设置 LLM API key。模型服务由外部 agent 的客户端配置。现有 `.claude/` 不由安装脚本改写。
 
-## 从新环境安装
+## 推荐工作流
 
-推荐 **Python 3.12**，只安装到仓库虚拟环境：
+让 agent 读取 [lego-builder 指引](skills/lego-builder/SKILL.md)，通过 MCP 执行：
 
-```powershell
-.\scripts\setup.ps1 -Python <Python3.12的完整路径> -Precision
-.\.venv\Scripts\python.exe -X utf8 -m legoworld fetch-assets
-.\.venv\Scripts\python.exe -X utf8 -m legoworld doctor
-```
+1. `get_model_tree` 读取当前 revision，必要时 `create_model`。
+2. 搜索零件、查询真实连接点，在工作区写 `build.py`，实现 `build(**parameters) -> brickagent.Assembly`。
+3. `run_build_script` 一次构建主体或一个组件；使用函数、循环及共享子组件减少往返。
+4. `apply_edits` 批量改色、变换、连接或替换，`review_model` 返回原生四视图图片。
+5. 修改脚本时明确选择重建整个模型、添加组件或替换某个组件。
+6. `export_model` 通过完整检查后输出模型。
 
-也可先创建 `.venv`，再 `python -m pip install -e '.[dev,precision]'`。Windows/Python 3.12 的 PyBullet 3.2.7 可能需要从源码编译，需 Visual Studio C++ Build Tools；本机已实际编译成功。几何资产下载约 **330 MiB**，包含 191 MiB 的凸碰撞体归档，解压后需约 2 GB 空间。下载不会在 MCP 启动时自动执行。
+所有写操作携带 `expected_revision`；失败不会推进 revision。默认编辑一个组件副本只影响该副本。组件重建会替换目标内部的工具修改，其他部分保留。命名端口用于保留组件间指定连接。
 
-可通过环境变量指定资产路径：
+## 检查与零件范围
 
-| 变量 | 用途 |
-| --- | --- |
-| `LEGOWORLD_ASSETS` | 总资产目录，默认仓库 `.cache/assets` |
-| `LDRAW_LIBRARY_PATH` | 已安装的 LDraw 根目录，内含 `parts/` 和 `p/` |
-| `BRICKNET_DATA` | 碰撞数据根目录，内含 `cvx/` |
-| `LEGOWORLD_COLLISION` | 默认 `bricknet`；`aabb` 为显式简化回退 |
-| `LEGOWORLD_RENDERER` | 默认 `ldraw`；`boxes` 为简化方盒回退 |
+碰撞使用 BrickNet 凸分解和 1 LDU 容差。连接图由 BrickAgent 递归展开后的世界姿态推断，支持原生凸点、侧面凸点、轴、夹子、铰链及球接头等连接；指定连接还必须满足精确配合。
 
-没有安装精细依赖和资产时，可使用 `setup.ps1` 基础安装，并设置以下回退模式：
+每批检查碰撞、指定连接和上游库存约束；允许尚未落地的中间组件。最终导出增加 BrickAgent 刚体稳定性检查，多个稳定独立物体可以通过。报告中的 `batch_valid` 与 `exportable` 表示不同阶段。
 
-```powershell
-$env:LEGOWORLD_COLLISION = 'aabb'
-$env:LEGOWORLD_RENDERER = 'boxes'
-```
+搜索过滤零件几何的递归依赖和碰撞体。本机全量扫描的 14,441 种原生零件资产齐全；现有 60 种保留为 `common_only` 常用集合。资产齐全不代表每种零件及其所有连接组合都经过人工搭建验证。
 
-此模式明确返回 `verified: false`，其导出仅通过保守 AABB 和凸点检查。修改环境变量后重启 MCP；客户端也可以在 MCP 配置的 `env` 中注入这些变量。
+## 文件与恢复
 
-## 工具与输出
-
-新增工具：`get_connectors`、`attach_part`、`preview_placement`、`replace_part`、`transform_group`、`inspect_part`、`measure_model`、`render_view`。既有零件搜索、放置、连接建议、墙/房间构建、检查点、审查和导出仍可用。连接建议也已改为实际连接点枚举。
-
-坐标为 LDU：20/凸点、8/板、24/砖；**负 Y 向上，放置坐标为底部原点**。使用 `get_part_info` 查看不熟悉零件的尺寸、原点和连接点。
+`outputs/project.json` 是当前完整状态，服务重启自动恢复。导出目录含：
 
 ```text
 outputs/<作品名>/
-  model.io              # 基础 Studio ZIP，内含标准 LDraw 模型
-  model.mpd             # 标准 LDraw 模型
-  preview.png           # 四视图
-  validation.json       # 碰撞、连接、网格检查
-  result.json           # 导出路径与实际后端
-  iterations/001/...    # 每轮模型、图片、报告
+  model.io             基础 Studio ZIP
+  model.mpd            保留共享组件的原生 LDraw
+  project.json         含端口、指定连接、脚本来源和 MCP 精修的完整快照
+  preview.png
+  validation.json
 ```
 
-`load_model` 可恢复本项目导出的基础 IO/MPD。其他 Studio 项目请先导出 MPD；仅接受当前 60 种零件和直立的四种水平朝向。IO 不保留说明书、完整 modelv2 元数据、定制零件或材质设置。文件容器和坐标已测试；**实际用 Studio 打开、编辑、另存仍需人工验收**。
+检查点、失败候选和审查分别位于 `outputs/checkpoints`、`outputs/candidates`、`outputs/reviews`。要完整继续编辑，优先加载 V3 JSON；MPD/IO 恢复几何与层级，并重新推断连接，不包含项目端口或指定连接意图。
 
-## 当前边界与回退
+## 开发与边界
 
-支持直立凸点连接及四分之一圈水平旋转；暂不支持侧向 SNOT、铰链、夹杆、轴孔等连接求解，也不进行夹持力、承重或变形仿真。凸分解是几何近似，1 LDU 容差内的穿入会被接受。预览使用实际零件网格，但采用不透明平面着色，没有 Studio 的光追、透明材质和阴影效果；大模型会更慢，可用 `render_view` 单独观察局部。
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m pytest -q
+.\.venv\Scripts\python.exe -X utf8 -m legoworld doctor --full
+.\.venv\Scripts\python.exe -X utf8 scripts/benchmark_v3.py
+```
 
-Git 第一版基线为标签 `v0.1.0`（`5d81d85`），第二版位于 `feat/v0.2-precision`。已保存本地改动后，可 `git switch --detach v0.1.0` 查看第一版；返回 `git switch feat/v0.2-precision`。这不会回退虚拟环境中的依赖，第一版工具仍兼容当前环境。也可保留第二版代码，仅使用上面的两个环境变量切换简化后端。
+资产路径仍通过 `LEGOWORLD_ASSETS`、`LDRAW_LIBRARY_PATH` 和 `BRICKNET_DATA` 注入。V2 的 AABB / boxes 回退及底部原点约定已取消；迁移时移除旧回退配置，改用原生 LDraw 坐标或导入旧 MPD。
 
-开发说明和第三方来源见 [AGENTS.md](AGENTS.md)、[V2.md](docs/V2.md) 与 [THIRD_PARTY.md](THIRD_PARTY.md)。
+脚本作为受信任本地代码执行；独立进程用于隔离异常、超时和原生崩溃，不能回滚任意文件副作用。构建函数应只创建模型。预览仍为 CPU 不透明平面着色；稳定性把连接分量视为刚体，不模拟凸点夹持力、关节受力或变形。基础 IO 不保存 Studio 说明书与 modelv2 元数据，Studio GUI 打开、编辑和另存仍需人工验收。
+
+V2 保留在 `feat/v0.2-precision`（`33b17a0`）；V1 保留为 `v0.1.0`。不同版本应使用独立虚拟环境。

@@ -1,0 +1,34 @@
+{
+  "parts": 264,
+  "geometry_identical": true,
+  "timing_scope": "MCP service transaction API with real disposable workers and persistence; excludes MCP transport, rendering and final checks",
+  "individual": {
+    "construction_requests": 264,
+    "batch_validations": 264,
+    "construction_seconds": 560.382325500017,
+    "validation_seconds": 29.418992599355988,
+    "repairs": 0
+  },
+  "hybrid": {
+    "construction_requests": 1,
+    "batch_validations": 1,
+    "construction_seconds": 2.3634535000892356,
+    "validation_seconds": 0.21483439998701215,
+    "repairs": 0
+  },
+  "request_reduction": 0.9962121212121212,
+  "construction_speedup": 237.1031735885047,
+  "final_stability": {
+    "individual": {
+      "checked": true,
+      "stable": true,
+      "max_displacement_ldu": 3.0
+    },
+    "hybrid": {
+      "checked": true,
+      "stable": true,
+      "max_displacement_ldu": 3.0
+    }
+  },
+  "native_graph_edges": 416
+}
